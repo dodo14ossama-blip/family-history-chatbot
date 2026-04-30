@@ -2,7 +2,7 @@ import google.generativeai as genai
 import os
 
 # استخدام المفتاح من متغيرات البيئة (لـ Render) أو المفتاح المباشر
-API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBnUf97bdEt_WlLdC79LNX1lqRak1d5s_Y")
+API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAFRc9rkX6vB-UtDDvl7xgL1SJF8kBaAdk")
 genai.configure(api_key=API_KEY)
 
 print("="*60)
