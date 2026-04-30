@@ -13,7 +13,7 @@ import google.generativeai as genai
 app = Flask(__name__)
 CORS(app, origins=["*"])
 
-# إعداد Gemini
+# إعداد Gemini - المفتاح الجديد
 API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAFRc9rkX6vB-UtDDvl7xgL1SJF8kBaAdk")
 genai.configure(api_key=API_KEY)
 
@@ -24,85 +24,58 @@ SYSTEM_PROMPT = """
 
 1. **التخصص**: ركز فقط على مواضيع تاريخ العائلة، الأنساب، تتبع الأجداد، 
    الوثائق التاريخية، DNA العائلي، وشجرة العائلة.
-2. **المهنية**: كن دقيقًا ومحايدًا. إذا سألك المستخدم عن شيء خارج تخصصك، 
-   قل له بلطف إن هذا خارج نطاق اختصاصك.
-3. **التشجيع**: شجع المستخدم على مشاركة قصص عائلته وقدم نصائح عملية للبحث.
-4. **المصادر**: انصح بالمصادر الموثوقة في مصر.
-5. **الخصوصية**: ذكر المستخدم بأهمية احترام خصوصية أفراد العائلة الأحياء.
-6. **الإيجاز**: ردودك تكون مختصرة (2-4 جمل) مناسبة للعرض على الجوال.
+2. **المهنية**: كن دقيقًا ومحايدًا.
+3. **التشجيع**: شجع المستخدم على مشاركة قصص عائلته.
+4. **الخصوصية**: ذكر المستخدم بأهمية احترام خصوصية أفراد العائلة.
+5. **الإيجاز**: ردودك تكون مختصرة (2-4 جمل).
 
-رد باللغة العربية او الانجليزيه علي حسب لغه المتكلم.
+رد دائماً باللغة العربية.
 """
 
-# ========== Get Working Model - الخطأ هنا كان مت修正 ==========
+# ========== Get Working Model ==========
 def get_working_model():
     """جلب أول موديل شغال من القائمة المتاحة"""
     
-    # قائمة الموديلات حسب التوفر (من الأحدث للأقدم)
-    models_to_try = [
-        "gemini-2.0-flash-exp",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-1.0-pro",
-        "gemini-pro",
-    ]
+    print("\n🔍 جلب الموديلات المتاحة من Gemini API...")
+    print("-" * 50)
     
-    print("\n🔍 البحث عن موديل شغال...")
+    available_models = []
     
-    # أولاً: نجيب كل الموديلات المتاحة من API
     try:
-        print("📋 جلب الموديلات المتاحة من Gemini API...")
-        available_models = []
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 model_name = m.name.replace('models/', '')
                 available_models.append(model_name)
                 print(f"   ✅ متاح: {model_name}")
         
+        print("-" * 50)
+        
         if available_models:
-            # اختيار أول موديل شغال من المتاحين
-            for model_name in models_to_try:
-                if model_name in available_models:
-                    print(f"🎯 تم اختيار: {model_name}")
-                    return model_name
+            preferred_order = [
+                "gemini-2.0-flash-exp",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-8b",
+                "gemini-1.5-pro",
+            ]
             
-            # لو مفيش match, خد أول موديل متاح
+            for preferred in preferred_order:
+                if preferred in available_models:
+                    print(f"🎯 تم اختيار الموديل: {preferred}")
+                    return preferred
+            
             chosen = available_models[0]
-            print(f"🎯 تم اختيار (أول موديل متاح): {chosen}")
+            print(f"🎯 تم اختيار أول موديل متاح: {chosen}")
             return chosen
             
     except Exception as e:
-        print(f"⚠️ خطأ في جلب الموديلات: {e}")
+        print(f"❌ خطأ في جلب الموديلات: {e}")
+        return "gemini-1.5-flash"
     
-    # لو فشل الجلب, نجرب كل الموديلات يدوياً
-    print("🔄 تجربة الموديلات يدوياً...")
-    for model_name in models_to_try:
-        try:
-            print(f"   تجربة: {model_name}...", end=" ")
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content("Say hi")
-            if response and response.text:
-                print(f"✅ يعمل!")
-                return model_name
-            print(f"❌ لا يعمل")
-        except Exception as e:
-            error_str = str(e)
-            if "404" in error_str:
-                print(f"❌ غير موجود")
-            elif "not supported" in error_str:
-                print(f"❌ غير مدعوم")
-            else:
-                print(f"❌ {error_str[:30]}")
-            continue
-    
-    # Last resort - استخدام gemini-pro (الأكثر استقراراً)
-    print("⚠️ استخدام gemini-pro كآخر حل")
-    return "gemini-pro"
+    return "gemini-1.5-flash"
 
 print("\n" + "="*60)
-print("🚀 بدء تشغيل السيرفر...".center(60))
+print("🚀 بدء تشغيل Family History Chatbot".center(60))
 print("="*60)
 
 MODEL_NAME = get_working_model()
@@ -119,11 +92,10 @@ def get_or_create_chat(session_id):
         try:
             model = genai.GenerativeModel(MODEL_NAME)
             chat = model.start_chat(history=[])
-            # إرسال system prompt كأول رسالة
             chat.send_message(SYSTEM_PROMPT)
             chat_sessions[session_id] = chat
             chat_histories[session_id] = []
-            print(f"✅ جلسة جديدة: {session_id}")
+            print(f"✅ جلسة جديدة: {session_id[:8]}...")
         except Exception as e:
             print(f"❌ خطأ في إنشاء الجلسة: {e}")
             raise
@@ -140,8 +112,7 @@ def home():
             "name": "Family History Chatbot API",
             "version": "3.0.0",
             "status": "online",
-            "model": MODEL_NAME,
-            "endpoints": ["/test", "/chat", "/api_info", "/mobile/chat/send"]
+            "model": MODEL_NAME
         })
 
 @app.route('/test')
@@ -161,15 +132,29 @@ def api_info():
         "model": MODEL_NAME,
         "hosted_on": "Vercel",
         "endpoints": {
-            "/": "الواجهة الرئيسية",
-            "/test": "اختبار الاتصال",
-            "/chat": "محادثة (POST) - للتطبيق والويب",
-            "/mobile/chat/send": "محادثة (POST) - مخصص للموبايل",
-            "/mobile/session/create": "إنشاء جلسة جديدة (POST)",
-            "/mobile/chat/history/<session_id>": "تاريخ المحادثة (GET)",
+            "/chat": "محادثة (POST)",
+            "/mobile/chat/send": "محادثة للموبايل (POST)",
+            "/mobile/session/create": "إنشاء جلسة (POST)",
             "/api_info": "معلومات API"
         }
     })
+
+@app.route('/models')
+def list_models():
+    try:
+        models_list = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                model_name = m.name.replace('models/', '')
+                models_list.append(model_name)
+        return jsonify({
+            "status": "success",
+            "current_model": MODEL_NAME,
+            "available_models": models_list,
+            "total": len(models_list)
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 # ========== MAIN CHAT ==========
 @app.route('/chat', methods=['POST'])
@@ -182,14 +167,10 @@ def chat():
         if not user_message:
             return jsonify({"reply": "الرجاء كتابة رسالة", "status": "error"})
         
-        # Get or create chat session
         chat_session = get_or_create_chat(session_id)
-        
-        # Send message
         response = chat_session.send_message(user_message)
         bot_reply = response.text
         
-        # Save to history
         if session_id in chat_histories:
             chat_histories[session_id].append({
                 "user": user_message,
@@ -205,22 +186,21 @@ def chat():
         
     except Exception as e:
         error_msg = str(e)
-        print(f"❌ خطأ في /chat: {error_msg}")
+        print(f"❌ خطأ: {error_msg}")
         return jsonify({
             "reply": f"حدث خطأ: {error_msg[:150]}",
             "status": "error"
         }), 500
 
-# ========== MOBILE OPTIMIZED ENDPOINTS ==========
+# ========== MOBILE ENDPOINTS ==========
 
 @app.route('/mobile/session/create', methods=['POST', 'GET'])
 def mobile_create_session():
-    """إنشاء جلسة جديدة - للتطبيق"""
     try:
         data = request.json or {}
         user_id = data.get('user_id')
-        
         session_id = str(uuid.uuid4())
+        
         model = genai.GenerativeModel(MODEL_NAME)
         chat = model.start_chat(history=[])
         chat.send_message(SYSTEM_PROMPT)
@@ -235,27 +215,18 @@ def mobile_create_session():
             "created_at": datetime.now().isoformat()
         })
     except Exception as e:
-        print(f"❌ خطأ في create_session: {e}")
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/mobile/chat/send', methods=['POST'])
 def mobile_chat_send():
-    """إرسال رسالة من التطبيق"""
     try:
         data = request.json
         user_message = data.get('message', '').strip()
         session_id = data.get('session_id')
         
         if not user_message:
-            return jsonify({
-                "success": False,
-                "reply": "الرجاء كتابة رسالة"
-            })
+            return jsonify({"success": False, "reply": "الرجاء كتابة رسالة"})
         
-        # Create session if not exists
         if not session_id or session_id not in chat_sessions:
             session_id = str(uuid.uuid4())
             model = genai.GenerativeModel(MODEL_NAME)
@@ -264,12 +235,10 @@ def mobile_chat_send():
             chat_sessions[session_id] = chat
             chat_histories[session_id] = []
         
-        # Send message
         chat_session = chat_sessions[session_id]
         response = chat_session.send_message(user_message)
         bot_reply = response.text
         
-        # Save to history
         message_id = str(uuid.uuid4())
         chat_histories[session_id].append({
             "id": message_id,
@@ -287,16 +256,10 @@ def mobile_chat_send():
         })
         
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ خطأ في mobile_chat: {error_msg}")
-        return jsonify({
-            "success": False,
-            "reply": f"خطأ: {error_msg[:150]}"
-        }), 500
+        return jsonify({"success": False, "reply": f"خطأ: {str(e)[:150]}"}), 500
 
 @app.route('/mobile/chat/history/<session_id>', methods=['GET'])
 def mobile_get_history(session_id):
-    """جلب تاريخ المحادثة"""
     try:
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)
@@ -323,34 +286,21 @@ def mobile_get_history(session_id):
             "has_more": has_more
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/mobile/session/<session_id>', methods=['DELETE'])
 def mobile_delete_session(session_id):
-    """حذف جلسة"""
     try:
         if session_id in chat_sessions:
             del chat_sessions[session_id]
         if session_id in chat_histories:
             del chat_histories[session_id]
-        
-        return jsonify({
-            "success": True,
-            "session_id": session_id,
-            "message": "Session deleted"
-        })
+        return jsonify({"success": True, "message": "Session deleted"})
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/mobile/status', methods=['GET'])
 def mobile_status():
-    """فحص الاتصال"""
     return jsonify({
         "success": True,
         "status": "online",
@@ -366,24 +316,6 @@ def serve_html():
     except:
         return jsonify({"error": "helper.html not found"}), 404
 
-@app.route('/models')
-def list_models():
-    """قائمة الموديلات المتاحة"""
-    try:
-        models_list = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                model_name = m.name.replace('models/', '')
-                models_list.append(model_name)
-        return jsonify({
-            "status": "success",
-            "available_models": models_list,
-            "current_model": MODEL_NAME,
-            "total": len(models_list)
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
 # ========== Run ==========
 if __name__ == '__main__':
     PORT = int(os.environ.get("PORT", 8000))
@@ -398,10 +330,6 @@ if __name__ == '__main__':
     print("   GET    /mobile/chat/history/<id>")
     print("   DELETE /mobile/session/<id>")
     print("   GET    /mobile/status")
-    print("\n💬 Main Endpoints:")
-    print("   POST   /chat")
-    print("   GET    /test")
-    print("   GET    /api_info")
     print("\n" + "="*70)
     
     app.run(host='0.0.0.0', port=PORT, debug=False)
