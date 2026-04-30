@@ -6,119 +6,112 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from google import genai
 from datetime import datetime
 import uuid
+import google.generativeai as genai
 
 app = Flask(__name__)
 CORS(app, origins=["*"])
 
 # إعداد Gemini
-API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBnUf97bdEt_WlLdC79LNX1lqRak1d5s_Y")
-client = genai.Client(api_key=API_KEY)
+API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAFRc9rkX6vB-UtDDvl7xgL1SJF8kBaAdk")
+genai.configure(api_key=API_KEY)
 
-# المنفذ من متغيرات البيئة (لـ Render)
-PORT = int(os.environ.get("PORT", 8000))
+# ========== System Prompt ==========
+SYSTEM_PROMPT = """
+أنت مساعد متخصص في **تاريخ العائلة والأنساب**، اسمك "مرشد العائلة". 
+تحدث بالعربية الفصحى البسيطة. اتبع القواعد التالية:
 
+1. **التخصص**: ركز فقط على مواضيع تاريخ العائلة، الأنساب، تتبع الأجداد، 
+   الوثائق التاريخية، DNA العائلي، وشجرة العائلة.
+2. **المهنية**: كن دقيقًا ومحايدًا. إذا سألك المستخدم عن شيء خارج تخصصك، 
+   قل له بلطف إن هذا خارج نطاق اختصاصك.
+3. **التشجيع**: شجع المستخدم على مشاركة قصص عائلته وقدم نصائح عملية للبحث.
+4. **المصادر**: انصح بالمصادر الموثوقة في مصر.
+5. **الخصوصية**: ذكر المستخدم بأهمية احترام خصوصية أفراد العائلة الأحياء.
+6. **الإيجاز**: ردودك تكون مختصرة (2-4 جمل) مناسبة للعرض على الجوال.
+
+رد باللغة العربية او الانجليزيه علي حسب لغه المتكلم.
+"""
+
+# ========== Get Working Model ==========
 def get_working_model():
-    print("\n" + "="*60)
-    print("البحث عن موديل Gemini شغال".center(60))
-    print("="*60)
-    
-    try:
-        print("\nجلب الموديلات المتاحة...")
-        available_models = []
-        for m in client.models.list():
-            if hasattr(m, 'supported_actions') and 'generateContent' in str(m.supported_actions):
-                model_name = m.name.replace('models/', '')
-                available_models.append(model_name)
-                print(f"✅ متاح: {model_name}")
-        
-        if available_models:
-            chosen_model = available_models[0]
-            print(f"\n🎯 استخدام: {chosen_model}")
-            return chosen_model
-        
-    except Exception as e:
-        print(f"خطأ في جلب الموديلات: {e}")
-    
     models_to_try = [
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "gemini-pro",
-        "gemini-flash-latest",
-        "gemini-pro-latest"
     ]
     
     for model_name in models_to_try:
         try:
-            print(f"\n---> تجربة: {model_name}")
-            response = client.models.generate_content(
-                model=model_name,
-                contents="Say hello"
-            )
-            if response and response.text:
-                print(f"✅ الموديل يعمل: {model_name}")
-                return model_name
+            model = genai.GenerativeModel(model_name)
+            model.generate_content("test")
+            print(f"✅ Using model: {model_name}")
+            return model_name
         except:
             continue
     
-    return "gemini-2.0-flash"
+    return "gemini-1.5-flash"
 
-print("\nبدء تحميل الموديل...")
-model_name = get_working_model()
-print(f"\n🎯 الموديل المستخدم: {model_name}")
+print("\n🚀 Starting Family History Chatbot on Vercel...")
+MODEL_NAME = get_working_model()
+print(f"📊 Model: {MODEL_NAME}")
 
+# ========== Session Management ==========
 chat_sessions = {}
-LOG_FILE = "conversations.log"
+chat_histories = {}
 
-def save_conversation(session_id, user_message, bot_reply):
-    try:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*60}\n")
-            f.write(f"الوقت: {timestamp}\n")
-            f.write(f"الجلسة: {session_id}\n")
-            f.write(f"المستخدم: {user_message}\n")
-            f.write(f"البوت: {bot_reply}\n")
-            f.write(f"{'='*60}\n")
-        return True
-    except:
-        return False
+def get_or_create_chat(session_id):
+    if session_id not in chat_sessions:
+        model = genai.GenerativeModel(MODEL_NAME)
+        chat = model.start_chat(history=[])
+        chat.send_message(SYSTEM_PROMPT)
+        chat_sessions[session_id] = chat
+        chat_histories[session_id] = []
+    return chat_sessions[session_id]
+
+# ========== ENDPOINTS (نفس الأسماء) ==========
 
 @app.route('/')
 def home():
-    return serve_html()
+    try:
+        return send_file('helper.html')
+    except:
+        return jsonify({
+            "name": "Family History Chatbot API",
+            "version": "3.0.0",
+            "status": "online",
+            "endpoints": ["/test", "/chat", "/api_info", "/mobile/chat/send"]
+        })
 
 @app.route('/test')
 def test():
     return jsonify({
         "status": "success",
-        "message": "✅ السيرفر شغال على Render",
-        "model": model_name,
-        "time": datetime.now().isoformat(),
-        "host": request.host
+        "message": "✅ السيرفر شغال على Vercel",
+        "model": MODEL_NAME,
+        "time": datetime.now().isoformat()
     })
 
-@app.route('/models')
-def list_models():
-    try:
-        models_list = []
-        for m in client.models.list():
-            models_list.append({
-                "name": m.name,
-                "actions": m.supported_actions if hasattr(m, 'supported_actions') else []
-            })
-        return jsonify({
-            "status": "success",
-            "available_models": models_list,
-            "current_model": model_name
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+@app.route('/api_info')
+def api_info():
+    return jsonify({
+        "name": "Family History Chatbot API",
+        "version": "3.0.0",
+        "model": MODEL_NAME,
+        "hosted_on": "Vercel",
+        "endpoints": {
+            "/": "الواجهة الرئيسية",
+            "/test": "اختبار الاتصال",
+            "/chat": "محادثة (POST) - للتطبيق والويب",
+            "/mobile/chat/send": "محادثة (POST) - مخصص للموبايل",
+            "/mobile/session/create": "إنشاء جلسة جديدة (POST)",
+            "/mobile/chat/history/<session_id>": "تاريخ المحادثة (GET)",
+            "/api_info": "معلومات API"
+        }
+    })
 
+# ========== MAIN CHAT (نفس الاسم والطريقة) ==========
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
@@ -129,35 +122,20 @@ def chat():
         if not user_message:
             return jsonify({"reply": "الرجاء كتابة رسالة", "status": "error"})
         
-        system_prompt = """
-        أنت مساعد متخصص في **تاريخ العائلة والأنساب**، اسمك "مرشد العائلة". 
-        تحدث بالعربية الفصحى البسيطة. اتبع القواعد التالية:
-
-        1. **التخصص**: ركز فقط على مواضيع تاريخ العائلة، الأنساب، تتبع الأجداد، 
-           الوثائق التاريخية، DNA العائلي، وشجرة العائلة.
-        2. **المهنية**: كن دقيقًا ومحايدًا. إذا سألك المستخدم عن شيء خارج تخصصك، 
-           قل له بلطف إن هذا خارج نطاق اختصاصك.
-        3. **التشجيع**: شجع المستخدم على مشاركة قصص عائلته وقدم نصائح عملية للبحث.
-        4. **المصادر**: انصح بالمصادر الموثوقة (مثل دار الوثائق، مواقع الأنساب).
-        5. **الخصوصية**: ذكر المستخدم بأهمية احترام خصوصية أفراد العائلة الأحياء.
-        6. **التعامل مع الأدوية**: إذا سألك المستخدم عن دواء معين، لا تقدم أي نصيحة طبية. 
-           لكن إذا قال لك إنه تناول دواء معين وتعبت، يمكنك تقديم تعزية بسيطة وتوجيهه لاستشارة الطبيب فورًا. 
-
-        مثال لردودك: "أهلاً بك في رحلة اكتشاف تاريخ عائلتك! كيف يمكنني مساعدتك اليوم؟"
-        """
+        # Get or create chat session
+        chat_session = get_or_create_chat(session_id)
         
-        full_message = f"{system_prompt}\n\nالمستخدم: {user_message}\n\nالرد:"
-        
-        print(f"إرسال: {user_message[:50]}...")
-        
-        response = client.models.generate_content(
-            model=model_name,
-            contents=full_message
-        )
+        # Send message
+        response = chat_session.send_message(user_message)
         bot_reply = response.text
-        print(f"استلام: {bot_reply[:50]}...")
         
-        save_conversation(session_id, user_message, bot_reply)
+        # Save to history
+        if session_id in chat_histories:
+            chat_histories[session_id].append({
+                "user": user_message,
+                "bot": bot_reply,
+                "time": datetime.now().isoformat()
+            })
         
         return jsonify({
             "reply": bot_reply,
@@ -166,55 +144,199 @@ def chat():
         })
         
     except Exception as e:
-        error_message = str(e)
-        print(f"خطأ: {error_message}")
+        print(f"Error: {str(e)}")
         return jsonify({
-            "reply": f"حدث خطأ: {error_message[:100]}",
+            "reply": f"حدث خطأ: {str(e)[:100]}",
             "status": "error"
         })
 
-@app.route('/logs')
-def view_logs():
+# ========== MOBILE OPTIMIZED ENDPOINTS (جديدة للربط مع التطبيق) ==========
+
+@app.route('/mobile/session/create', methods=['POST', 'GET'])
+def mobile_create_session():
+    """إنشاء جلسة جديدة - للتطبيق"""
     try:
-        if os.path.exists(LOG_FILE):
-            with open(LOG_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-50:]
-                return jsonify({"status": "success", "logs": lines})
-        else:
-            return jsonify({"status": "success", "logs": ["لا توجد محادثات بعد"]})
+        data = request.json or {}
+        user_id = data.get('user_id')
+        
+        session_id = str(uuid.uuid4())
+        model = genai.GenerativeModel(MODEL_NAME)
+        chat = model.start_chat(history=[])
+        chat.send_message(SYSTEM_PROMPT)
+        
+        chat_sessions[session_id] = chat
+        chat_histories[session_id] = []
+        
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "user_id": user_id,
+            "created_at": datetime.now().isoformat()
+        })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/mobile/chat/send', methods=['POST'])
+def mobile_chat_send():
+    """إرسال رسالة من التطبيق - Endpoint مخصص للموبايل"""
+    try:
+        data = request.json
+        user_message = data.get('message', '').strip()
+        session_id = data.get('session_id')
+        user_id = data.get('user_id')
+        
+        if not user_message:
+            return jsonify({
+                "success": False,
+                "reply": "الرجاء كتابة رسالة"
+            })
+        
+        # Create session if not exists
+        if not session_id or session_id not in chat_sessions:
+            session_id = str(uuid.uuid4())
+            model = genai.GenerativeModel(MODEL_NAME)
+            chat = model.start_chat(history=[])
+            chat.send_message(SYSTEM_PROMPT)
+            chat_sessions[session_id] = chat
+            chat_histories[session_id] = []
+        
+        # Send message
+        chat_session = chat_sessions[session_id]
+        response = chat_session.send_message(user_message)
+        bot_reply = response.text
+        
+        # Save to history
+        message_id = str(uuid.uuid4())
+        chat_histories[session_id].append({
+            "id": message_id,
+            "user": user_message,
+            "bot": bot_reply,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return jsonify({
+            "success": True,
+            "reply": bot_reply,
+            "session_id": session_id,
+            "message_id": message_id,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"Mobile chat error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "reply": f"خطأ: {str(e)[:100]}"
+        }), 500
+
+@app.route('/mobile/chat/history/<session_id>', methods=['GET'])
+def mobile_get_history(session_id):
+    """جلب تاريخ المحادثة - للتطبيق"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        if session_id not in chat_histories:
+            return jsonify({
+                "success": True,
+                "session_id": session_id,
+                "messages": [],
+                "total": 0,
+                "has_more": False
+            })
+        
+        messages = chat_histories[session_id]
+        total = len(messages)
+        paginated = messages[offset:offset + limit]
+        has_more = (offset + limit) < total
+        
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "messages": paginated,
+            "total": total,
+            "has_more": has_more
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/mobile/session/<session_id>', methods=['DELETE'])
+def mobile_delete_session(session_id):
+    """حذف جلسة - للتطبيق"""
+    try:
+        if session_id in chat_sessions:
+            del chat_sessions[session_id]
+        if session_id in chat_histories:
+            del chat_histories[session_id]
+        
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "message": "Session deleted"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/mobile/status', methods=['GET'])
+def mobile_status():
+    """فحص الاتصال - للتطبيق"""
+    return jsonify({
+        "success": True,
+        "status": "online",
+        "version": "3.0.0",
+        "model": MODEL_NAME,
+        "timestamp": datetime.now().isoformat()
+    })
 
 @app.route('/helper.html')
 def serve_html():
     try:
         return send_file('helper.html')
     except:
-        return "<h1>خطأ في تحميل الصفحة</h1>"
+        return jsonify({"error": "helper.html not found"}), 404
 
-@app.route('/api_info')
-def api_info():
-    return jsonify({
-        "name": "Family History Chatbot API",
-        "version": "2.0",
-        "model": model_name,
-        "hosted_on": "Render",
-        "endpoints": {
-            "/": "الواجهة الرئيسية",
-            "/test": "اختبار الاتصال",
-            "/models": "قائمة الموديلات",
-            "/chat": "محادثة (POST)",
-            "/logs": "سجل المحادثات",
-            "/api_info": "معلومات API"
-        }
-    })
+@app.route('/models')
+def list_models():
+    try:
+        models_list = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                models_list.append(m.name)
+        return jsonify({
+            "status": "success",
+            "available_models": models_list[:10],
+            "current_model": MODEL_NAME
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
+# ========== Run (for local testing) ==========
 if __name__ == '__main__':
+    PORT = int(os.environ.get("PORT", 8000))
     print("\n" + "="*70)
-    print("🚀 تشغيل Family History Chatbot على Render".center(70))
+    print("🚀 Family History Chatbot on Vercel".center(70))
     print("="*70)
-    print(f"\n✅ الموديل: {model_name}")
-    print(f"✅ المنفذ: {PORT}")
+    print(f"\n✅ Model: {MODEL_NAME}")
+    print(f"✅ Port: {PORT}")
+    print("\n📱 Mobile Endpoints:")
+    print("   POST   /mobile/session/create")
+    print("   POST   /mobile/chat/send")
+    print("   GET    /mobile/chat/history/<id>")
+    print("   DELETE /mobile/session/<id>")
+    print("   GET    /mobile/status")
+    print("\n💬 Main Endpoints:")
+    print("   POST   /chat")
+    print("   GET    /test")
+    print("   GET    /api_info")
     print("\n" + "="*70)
     
     app.run(host='0.0.0.0', port=PORT, debug=False)
