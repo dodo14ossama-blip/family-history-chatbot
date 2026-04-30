@@ -8,7 +8,7 @@ from datetime import datetime
 import uuid
 
 # إعداد Gemini
-API_KEY = "AIzaSyBnUf97bdEt_WlLdC79LNX1lqRak1d5s_Y"
+API_KEY = "AIzaSyAFRc9rkX6vB-UtDDvl7xgL1SJF8kBaAdk"
 genai.configure(api_key=API_KEY)
 
 app = FastAPI(title="Family History Chatbot")
